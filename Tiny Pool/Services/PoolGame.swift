@@ -403,7 +403,7 @@ final class PoolGame {
         let clamped = pull * min(1, Shot.maxPull / length)
         aims[p] = clamped
         haptics.updateAim(player: p, power: Shot.power(forPull: length))
-        previews[p] = showGuide ? makePreview(for: p, pull: clamped) : nil
+        previews[p] = makePreview(for: p, pull: clamped)
     }
 
     func touchEnded(_ id: AnyHashable) {

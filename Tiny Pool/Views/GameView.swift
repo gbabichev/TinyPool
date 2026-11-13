@@ -15,6 +15,7 @@ struct GameView: View {
     /// up into it as one compact row, so it neither sits far below nor lands on those icons.
     private var inStatusStrip: Bool { insets.top > 70 }
     @State private var showingRules = false
+    @State private var landscape = false
 
     var body: some View {
         ZStack {
@@ -49,6 +50,15 @@ struct GameView: View {
                     .allowsHitTesting(false)
             }
 
+            // Upright, the hint button sits below the table, in the corner. Wide, it joins the top bar.
+            if !landscape {
+                hintButton
+                    .padding(.leading, 12)
+                    .padding(.bottom, 2)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .ignoresSafeArea(.container, edges: .bottom)
+            }
+
             if game.canPlaceCue {
                 Text("Ball in hand: drag the cue ball anywhere, or pull back to shoot")
                     .font(.system(size: 14, weight: .heavy, design: .rounded))
@@ -73,7 +83,8 @@ struct GameView: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { game.topReserve = $0 > 70 ? 84 : $0 + 62 }
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { game.bottomReserve = $0 + 8 }
+        .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { landscape = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { game.bottomReserve = max($0 + 8, landscape ? 8 : 50) }
         .animation(.spring(duration: 0.35), value: game.overlay)
         .animation(.spring(duration: 0.3), value: game.banner)
         .sheet(isPresented: $showingRules, onDismiss: { game.isPaused = false }) {
@@ -115,6 +126,16 @@ struct GameView: View {
             .accessibilityLabel("Menu")
     }
 
+    /// Shows or hides where the balls will go after the hit. The line to the first ball stays.
+    private var hintButton: some View {
+        Button { game.showGuide.toggle() } label: {
+            Image(systemName: game.showGuide ? "lightbulb.fill" : "lightbulb.slash")
+        }
+        .buttonStyle(RoundButtonStyle())
+        .accessibilityLabel("Ball hint")
+        .accessibilityValue(game.showGuide ? "On" : "Off")
+    }
+
     private var rulesButton: some View {
         Button {
             game.isPaused = true
@@ -144,6 +165,7 @@ struct GameView: View {
                 HStack {
                     exitButton
                     Spacer()
+                    if landscape { hintButton }
                     rulesButton
                     restartButton
                 }

@@ -145,7 +145,7 @@ struct SettingsView: View {
             if Haptics.isAvailable {
                 toggleRow("Haptics", isOn: $game.isHapticsOn)
             }
-            toggleRow("Aim guide", isOn: $game.showGuide)
+            toggleRow("Ball hint", isOn: $game.showGuide)
             VStack(alignment: .leading, spacing: 12) {
                 Text("Table cloth")
                     .font(.system(size: 18, weight: .heavy, design: .rounded))

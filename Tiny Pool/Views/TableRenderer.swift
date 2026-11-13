@@ -284,10 +284,14 @@ enum TableRenderer {
         if let preview = game.previews[player] {
             drawDots(&w, preview.cue, startAt: Double(ringR) + 3, color: tint, fade: true)
             if let ghost = preview.ghost {
+                // Where the cue ball will hit.
                 w.stroke(w.circle(ghost.cg, CGFloat(Table.ballRadius)), with: .color(.white.opacity(0.85)),
                          style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
-                drawDots(&w, preview.target, startAt: Double(Table.ballRadius) + 2, color: .white, fade: true)
-                drawDots(&w, preview.after, startAt: Double(Table.ballRadius) + 2, color: tint.opacity(0.7), fade: true)
+                // With the hint on, also where the two balls go afterwards.
+                if game.showGuide {
+                    drawDots(&w, preview.target, startAt: Double(Table.ballRadius) + 2, color: .white, fade: true)
+                    drawDots(&w, preview.after, startAt: Double(Table.ballRadius) + 2, color: tint.opacity(0.7), fade: true)
+                }
             }
         }
 
