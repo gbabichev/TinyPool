@@ -5,7 +5,7 @@
 //  Screens centre their content on the whole display, not on the safe area, so nothing looks
 //  off-centre next to a big gutter (the iPhone Duo has a wide one beside the camera). The real
 //  safe-area insets are passed down so that corner buttons can still keep clear of the gutter.
-//  This is for landscape. In portrait everything simply stays inside the safe area.
+//  This applies in portrait too: the Duo folded keeps its strip down one side even upright.
 //
 
 import SwiftUI
@@ -21,14 +21,13 @@ struct FullWidth<Content: View>: View {
 
     var body: some View {
         GeometryReader { geo in
-            let landscape = geo.size.width > geo.size.height
             content
                 .environment(\.screenInsets, EdgeInsets(
                     top: geo.safeAreaInsets.top,
-                    leading: landscape ? geo.safeAreaInsets.leading : 0,
+                    leading: geo.safeAreaInsets.leading,
                     bottom: geo.safeAreaInsets.bottom,
-                    trailing: landscape ? geo.safeAreaInsets.trailing : 0))
-                .ignoresSafeArea(.container, edges: landscape ? .horizontal : [])
+                    trailing: geo.safeAreaInsets.trailing))
+                .ignoresSafeArea(.container, edges: .horizontal)
         }
     }
 }

@@ -15,6 +15,10 @@ struct GameView: View {
     /// up into it as one compact row, so it neither sits far below nor lands on those icons.
     private var inStatusStrip: Bool { insets.top > 70 }
     @State private var showingRules = false
+    /// A wide strip down one side that holds the clock and Wi-Fi (the Duo folded). Held upright, the
+    /// buttons stand in a column in it, and the table and scoreboard keep to the rest of the screen.
+    private var gutterWidth: CGFloat { max(insets.leading, insets.trailing) }
+    private var inGutter: Bool { !landscape && gutterWidth >= 56 }
     @State private var landscape = false
 
     var body: some View {
@@ -32,6 +36,21 @@ struct GameView: View {
                 .padding(.top, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .ignoresSafeArea(.container, edges: inStatusStrip ? .top : [])
+
+            if inGutter {
+                // Below the clock and Wi-Fi.
+                VStack(spacing: 10) {
+                    exitButton
+                    restartButton
+                    hintButton
+                    rulesButton
+                }
+                .buttonStyle(RoundButtonStyle())
+                .frame(width: gutterWidth)
+                .padding(.top, 168)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: insets.trailing >= insets.leading ? .topTrailing : .topLeading)
+                .ignoresSafeArea(.container, edges: .top)
+            }
 
             if let banner = game.banner {
                 Text(banner)
@@ -51,7 +70,7 @@ struct GameView: View {
             }
 
             // Upright, the hint button sits below the table, in the corner. Wide, it joins the top bar.
-            if !landscape {
+            if !landscape && !inGutter {
                 hintButton
                     .padding(.leading, 12)
                     .padding(.bottom, 2)
@@ -84,7 +103,7 @@ struct GameView: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { game.topReserve = $0 > 70 ? 84 : $0 + 62 }
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { landscape = $0 }
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { game.bottomReserve = max($0 + 8, landscape ? 8 : 50) }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { game.bottomReserve = max($0 + 8, landscape || inGutter ? 8 : 50) }
         .animation(.spring(duration: 0.35), value: game.overlay)
         .animation(.spring(duration: 0.3), value: game.banner)
         .sheet(isPresented: $showingRules, onDismiss: { game.isPaused = false }) {
@@ -150,7 +169,9 @@ struct GameView: View {
     }
 
     @ViewBuilder private var hud: some View {
-        if inStatusStrip {
+        if inGutter {
+            Scoreboard(game: game)
+        } else if inStatusStrip {
             HStack(spacing: 10) {
                 exitButton
                 Scoreboard(game: game)
@@ -160,19 +181,43 @@ struct GameView: View {
             .buttonStyle(RoundButtonStyle())
             .padding(.top, 14)
         } else {
-            ZStack(alignment: .top) {
-                Scoreboard(game: game)
-                HStack {
-                    exitButton
-                    Spacer()
-                    if landscape { hintButton }
-                    rulesButton
-                    restartButton
-                }
-                .padding(.horizontal, side)
-                .buttonStyle(RoundButtonStyle())
+            // The scoreboard sits in the middle, with a button on the left and the rest on the right.
+            // Where the screen is narrow (the Duo folded, with its strip down one side) it settles
+            // for fitting beside them, instead of sitting on top of them.
+            ViewThatFits(in: .horizontal) {
+                topRow(leading: side, trailing: side, centred: true)
+                topRow(leading: insets.leading, trailing: insets.trailing, centred: true)
+                topRow(leading: insets.leading, trailing: insets.trailing, centred: false)
+            }
+            .buttonStyle(RoundButtonStyle())
+        }
+    }
+
+    /// How wide the group of buttons on the right is.
+    private var rightButtonsWidth: CGFloat {
+        let n: CGFloat = landscape ? 3 : 2
+        return n * 44 + (n - 1) * 8
+    }
+
+    private func topRow(leading: CGFloat, trailing: CGFloat, centred: Bool) -> some View {
+        HStack(spacing: 8) {
+            if centred {
+                // As wide as the buttons on the right, so the scoreboard lands in the exact middle.
+                exitButton.frame(width: rightButtonsWidth, alignment: .leading)
+            } else {
+                exitButton
+            }
+            Spacer(minLength: 6)
+            Scoreboard(game: game)
+            Spacer(minLength: 6)
+            HStack(spacing: 8) {
+                if landscape { hintButton }
+                rulesButton
+                restartButton
             }
         }
+        .padding(.leading, leading)
+        .padding(.trailing, trailing)
     }
 }
 
@@ -228,13 +273,11 @@ private struct Scoreboard: View {
             }
         }
         .foregroundStyle(Ink.dark)
-        .padding(.horizontal, game.mode.playerCount > 3 ? 8 : 18)
+        .padding(.horizontal, game.mode.playerCount > 3 ? 10 : 18)
         .padding(.vertical, 8)
         .background(Capsule().fill(Ink.cream))
         .overlay(Capsule().stroke(.black.opacity(0.12), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.18), radius: 0, x: 0, y: 2)
-        // Four chips are wide: a touch smaller, so they clear the buttons on a phone.
-        .scaleEffect(game.mode.playerCount > 3 ? 0.88 : 1)
     }
 
     private func line(_ text: String) -> some View {
@@ -247,7 +290,7 @@ private struct Scoreboard: View {
 
     @ViewBuilder private func chips(named: Bool) -> some View {
         let names = game.playerNames
-        HStack(spacing: named ? 12 : (game.mode.playerCount > 3 ? 2 : 10)) {
+        HStack(spacing: named ? 12 : (game.mode.playerCount > 3 ? 4 : 10)) {
             ForEach(0..<game.mode.playerCount, id: \.self) { p in
                 chip(p, name: named ? (p == 0 ? "You" : names[p].replacingOccurrences(of: " bot", with: "")) : nil)
             }
@@ -258,8 +301,9 @@ private struct Scoreboard: View {
         let turnBased = !game.isSimultaneous
         let active = turnBased && game.mode.playerCount > 1 && game.turn == p
         let rules = game.mode.rules
-        return HStack(spacing: 5) {
-            BallDot(number: nil, ring: PoolColors.players[p], size: 16)
+        let tight = game.mode.playerCount > 3   // four chips: a little smaller, so the row fits a phone
+        return HStack(spacing: tight ? 3 : 5) {
+            BallDot(number: nil, ring: PoolColors.players[p], size: tight ? 14 : 16)
             if let name {
                 Text(name).font(.system(size: 12, weight: .bold, design: .rounded)).opacity(0.8)
             }
@@ -270,10 +314,10 @@ private struct Scoreboard: View {
                 }
             } else if rules.scoresPoints {
                 Text("\(game.scores.indices.contains(p) ? game.scores[p] : 0)")
-                    .font(.system(size: 17, weight: .heavy, design: .rounded)).monospacedDigit()
+                    .font(.system(size: tight ? 15 : 17, weight: .heavy, design: .rounded)).monospacedDigit()
             }
         }
-        .padding(.horizontal, 7)
+        .padding(.horizontal, tight ? 4 : 7)
         .padding(.vertical, 2)
         .background(Capsule().fill(PoolColors.players[p].opacity(active ? 0.25 : 0)))
     }
