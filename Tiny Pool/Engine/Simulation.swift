@@ -88,8 +88,8 @@ nonisolated struct Simulation: Sendable {
             balls[i].vel = ns <= Self.stopSpeed ? .zero : balls[i].vel * (ns / s)
         }
 
-        // Cushions.
-        for i in balls.indices where balls[i].onTable {
+        // Cushions. A ball at rest cannot reach one.
+        for i in balls.indices where balls[i].onTable && balls[i].vel != .zero {
             var p = balls[i].pos, v = balls[i].vel
             let e = Self.cushionBounce
             let sideLo = w / 2 - Table.sideGap, sideHi = w / 2 + Table.sideGap
@@ -112,7 +112,10 @@ nonisolated struct Simulation: Sendable {
         // Balls against balls.
         let n = balls.count
         for i in 0..<n where balls[i].onTable {
+            let iMoves = balls[i].vel != .zero
             for j in (i + 1)..<n where balls[j].onTable {
+                // Two balls at rest cannot hit each other.
+                if !iMoves, balls[j].vel == .zero { continue }
                 let d = balls[j].pos - balls[i].pos
                 let dist2 = d.dot(d)
                 let minDist = r * 2
@@ -135,8 +138,8 @@ nonisolated struct Simulation: Sendable {
             }
         }
 
-        // Pockets.
-        for i in balls.indices where balls[i].onTable {
+        // Pockets. Only a ball that is moving can drop into one.
+        for i in balls.indices where balls[i].onTable && balls[i].vel != .zero {
             let p = balls[i].pos
             var hit: Int?
             for (k, c) in Table.pockets.enumerated() where p.distance(to: c) < Table.pocketRadius(k) { hit = k; break }

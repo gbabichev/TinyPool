@@ -50,14 +50,6 @@ struct ViewTransform {
     func toScreen(_ v: Vec) -> CGPoint { v.cg.applying(affine) }
 }
 
-/// What a shot is about to do: the cue ball's route to its first ball, then where the two go.
-struct ShotPreview {
-    var cue: [Vec] = []
-    var ghost: Vec?
-    var target: [Vec] = []
-    var after: [Vec] = []
-}
-
 /// A ball on its way down a pocket. It keeps the speed it had, is pulled to the middle of the
 /// hole, and shrinks and darkens as it drops.
 struct Sink {
@@ -155,6 +147,8 @@ final class PoolGame {
     @ObservationIgnored private(set) var animTime = 0.0
     @ObservationIgnored private(set) var aims: [Int: Vec] = [:]
     @ObservationIgnored private(set) var previews: [Int: ShotPreview] = [:]
+    /// Players whose hint needs working out again. It is done once per frame, not once per touch event.
+    @ObservationIgnored private var previewDirty: Set<Int> = []
     @ObservationIgnored private(set) var sinks: [Sink] = []
     /// How each ball is turned, so it visibly rolls.
     @ObservationIgnored private(set) var orient: [simd_quatd] = []
@@ -250,7 +244,7 @@ final class PoolGame {
         resultNote = nil
         ballInHand = false
         isPaused = false
-        aims = [:]; previews = [:]; sinks = []; appeared = [:]; touches = [:]; fingers = []
+        aims = [:]; previews = [:]; previewDirty = []; sinks = []; appeared = [:]; touches = [:]; fingers = []
         respawnAt = [:]
         finishAt = nil
         rerackAt = nil
@@ -340,6 +334,12 @@ final class PoolGame {
             || isComputersTurn || banner != nil || timerRunning || ballInHand
     }
 
+    /// Whether the picture changes by itself right now. A table at rest does not: it is drawn once
+    /// and left alone, so it costs nothing until something moves.
+    var needsRedraw: Bool {
+        sim.isMoving || !aims.isEmpty || !sinks.isEmpty || !appeared.isEmpty || !respawnAt.isEmpty
+    }
+
     func transform(for size: CGSize) -> ViewTransform {
         ViewTransform(view: size, topReserve: topReserve, bottomReserve: bottomReserve)
     }
@@ -403,7 +403,7 @@ final class PoolGame {
         let clamped = pull * min(1, Shot.maxPull / length)
         aims[p] = clamped
         haptics.updateAim(player: p, power: Shot.power(forPull: length))
-        previews[p] = makePreview(for: p, pull: clamped)
+        previewDirty.insert(p)
     }
 
     func touchEnded(_ id: AnyHashable) {
@@ -418,6 +418,7 @@ final class PoolGame {
     private func cancelAim(_ player: Int) {
         aims[player] = nil
         previews[player] = nil
+        previewDirty.remove(player)
         haptics.endAim(player: player)
     }
 
@@ -438,67 +439,6 @@ final class PoolGame {
         if mode.rules == .timed { timerRunning = true }
         sounds.play(.cue(power: power))
         haptics.hit(power: power)
-    }
-
-    // MARK: - Aim guide
-
-    /// The route the cue ball will really take (the same physics as the shot) until it meets a
-    /// ball, then where both go.
-    private func makePreview(for player: Int, pull: Vec) -> ShotPreview {
-        var probe = sim
-        let ci = cueIndex[player]
-        let power = Shot.power(forPull: pull.length)
-        probe.launch(ci, velocity: pull.normalized * Shot.speed(forPull: pull.length))
-        var events: [SimEvent] = []
-        var preview = ShotPreview()
-        preview.cue = [probe.balls[ci].pos]
-        let maxLength = 260 + 620 * power
-
-        func record(_ list: inout [Vec], _ p: Vec) {
-            if let last = list.last, p.distance(to: last) < 4 { return }
-            list.append(p)
-        }
-
-        var length = 0.0
-        var steps = 0
-        var contact: (other: Int, at: Vec)?
-        while steps < 240 * 5, length < maxLength, probe.balls[ci].onTable, probe.balls[ci].vel != .zero {
-            let before = probe.balls[ci].pos
-            probe.step(events: &events)
-            steps += 1
-            length += probe.balls[ci].pos.distance(to: before)
-            record(&preview.cue, probe.balls[ci].pos)
-            for e in events {
-                if case .clack(let a, let b, _, _) = e, a == ci || b == ci { contact = (a == ci ? b : a, probe.balls[ci].pos) }
-                if case .pocketed(let i, _) = e, i == ci { length = maxLength }
-            }
-            events.removeAll(keepingCapacity: true)
-            if contact != nil { break }
-        }
-        guard let contact else { return preview }
-
-        preview.ghost = contact.at
-        preview.cue.append(contact.at)
-        preview.target = [probe.balls[contact.other].pos]
-        preview.after = [probe.balls[ci].pos]
-        var travelledTarget = 0.0, travelledAfter = 0.0
-        var s = 0
-        while s < 240, travelledTarget < 140 || travelledAfter < 90 {
-            let t0 = probe.balls[contact.other].pos, c0 = probe.balls[ci].pos
-            probe.step(events: &events)
-            s += 1
-            events.removeAll(keepingCapacity: true)
-            if probe.balls[contact.other].onTable, travelledTarget < 140 {
-                travelledTarget += probe.balls[contact.other].pos.distance(to: t0)
-                record(&preview.target, probe.balls[contact.other].pos)
-            }
-            if probe.balls[ci].onTable, travelledAfter < 90 {
-                travelledAfter += probe.balls[ci].pos.distance(to: c0)
-                record(&preview.after, probe.balls[ci].pos)
-            }
-            if !probe.isMoving { break }
-        }
-        return preview
     }
 
     // MARK: - Frame update
@@ -529,6 +469,14 @@ final class PoolGame {
         } else {
             accumulator = 0
         }
+
+        // Hints: once per frame, however many touch events came in. Balls moving elsewhere on the
+        // table (everyone at once) change the route, so those are worked out again too.
+        if sim.isMoving { previewDirty.formUnion(previews.keys) }
+        for p in previewDirty {
+            if let pull = aims[p], p < cueIndex.count { previews[p] = ShotPreview.make(in: sim, cue: cueIndex[p], pull: pull) }
+        }
+        previewDirty.removeAll(keepingCapacity: true)
 
         rollBalls()
         updateSinks(dt)

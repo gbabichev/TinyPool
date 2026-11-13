@@ -52,18 +52,15 @@ enum TableRenderer {
         if game.isSimultaneous {
             for p in 0..<game.mode.playerCount where game.canAim(p) && game.aims[p] == nil {
                 guard let cue = game.cueBall(of: p) else { continue }
-                let pulse = 0.5 + 0.5 * sin(time * 4 + Double(p))
-                let r = CGFloat(Table.ballRadius) + 8 + 2 * CGFloat(pulse)
-                w.stroke(w.circle(cue.pos.cg, r), with: .color(PoolColors.players[p].opacity(0.55 + 0.3 * pulse)),
+                // Still, not pulsing: a table at rest is drawn once and then costs nothing.
+                w.stroke(w.circle(cue.pos.cg, CGFloat(Table.ballRadius) + 9), with: .color(PoolColors.players[p].opacity(0.75)),
                          style: StrokeStyle(lineWidth: 3, dash: [5, 5]))
             }
         }
 
         // Ball in hand: the cue ball can be carried anywhere.
         if game.canPlaceCue, let cue = game.cueBall(of: 0), game.aims[0] == nil {
-            let pulse = 0.5 + 0.5 * sin(time * 5)
-            let r = CGFloat(Table.ballRadius) + 9 + 3 * CGFloat(pulse)
-            w.stroke(w.circle(cue.pos.cg, r), with: .color(PoolColors.players[game.turn].opacity(0.6 + 0.3 * pulse)),
+            w.stroke(w.circle(cue.pos.cg, CGFloat(Table.ballRadius) + 10), with: .color(PoolColors.players[game.turn].opacity(0.8)),
                      style: StrokeStyle(lineWidth: 3, dash: [6, 5]))
         }
 

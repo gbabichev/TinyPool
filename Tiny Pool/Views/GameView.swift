@@ -205,12 +205,20 @@ private struct Scoreboard: View {
                 chips(named: game.isComputerGame)
                 line("LEFT \(game.ballsLeft) · 8-BALL = 3")
             case (.timed, _):
+                // With three or four players the clock moves to the line below, to leave room.
+                let crowded = game.mode.playerCount > 2
                 HStack(spacing: 12) {
-                    Label(clock(game.secondsLeft), systemImage: "timer")
-                        .font(.system(size: 15, weight: .heavy, design: .rounded)).monospacedDigit()
+                    if !crowded {
+                        Label(clock(game.secondsLeft), systemImage: "timer")
+                            .font(.system(size: 15, weight: .heavy, design: .rounded)).monospacedDigit()
+                    }
                     chips(named: false)
                 }
-                line(game.secondsLeft == Rules.timedSeconds ? "THE CLOCK STARTS ON THE FIRST SHOT" : "LEFT \(game.ballsLeft) · 8-BALL = 3")
+                if game.secondsLeft == Rules.timedSeconds {
+                    line("THE CLOCK STARTS ON THE FIRST SHOT")
+                } else {
+                    line((crowded ? "\(clock(game.secondsLeft)) · " : "") + "LEFT \(game.ballsLeft) · 8-BALL = 3")
+                }
             case (.eightBall, _):
                 chips(named: true)
                 line(game.groups[0] == nil ? "OPEN TABLE · FIRST BALL POTTED CHOOSES" : "POT YOURS, THEN THE 8")
@@ -220,11 +228,13 @@ private struct Scoreboard: View {
             }
         }
         .foregroundStyle(Ink.dark)
-        .padding(.horizontal, 18)
+        .padding(.horizontal, game.mode.playerCount > 3 ? 8 : 18)
         .padding(.vertical, 8)
         .background(Capsule().fill(Ink.cream))
         .overlay(Capsule().stroke(.black.opacity(0.12), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.18), radius: 0, x: 0, y: 2)
+        // Four chips are wide: a touch smaller, so they clear the buttons on a phone.
+        .scaleEffect(game.mode.playerCount > 3 ? 0.88 : 1)
     }
 
     private func line(_ text: String) -> some View {
@@ -237,7 +247,7 @@ private struct Scoreboard: View {
 
     @ViewBuilder private func chips(named: Bool) -> some View {
         let names = game.playerNames
-        HStack(spacing: named ? 12 : 10) {
+        HStack(spacing: named ? 12 : (game.mode.playerCount > 3 ? 2 : 10)) {
             ForEach(0..<game.mode.playerCount, id: \.self) { p in
                 chip(p, name: named ? (p == 0 ? "You" : names[p].replacingOccurrences(of: " bot", with: "")) : nil)
             }
@@ -370,9 +380,13 @@ private struct WorldView: View {
             TableRenderer.draw(&ctx, size: size, game: game)
         }
         .task {
+            var wasAnimating = true
             while !Task.isCancelled {
                 game.advance(to: .now)
-                frame &+= 1
+                // Redraw only while something changes (and once more as it comes to rest).
+                let animating = game.needsRedraw
+                if animating || wasAnimating { frame &+= 1 }
+                wasAnimating = animating
                 try? await Task.sleep(for: game.isBusy ? .milliseconds(16) : .milliseconds(33))
             }
         }
