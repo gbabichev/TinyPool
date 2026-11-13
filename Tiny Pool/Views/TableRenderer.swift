@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import simd
 
 extension GraphicsContext {
     func circle(_ c: CGPoint, _ r: CGFloat) -> Path {
@@ -39,12 +40,12 @@ enum TableRenderer {
         let time = game.animTime
         let balls = game.sim.balls
 
-        // Balls on their way down a pocket.
+        // Balls on their way down a pocket: smaller and darker the deeper they are.
         for sink in game.sinks {
-            let k = min(1, (time - sink.start) / Sink.duration)
-            let e = k * k
-            let pos = sink.from + (sink.pocket - sink.from) * e
-            drawBall(&w, &ctx, t, kind: sink.kind, at: pos, scale: 1 - 0.5 * e, opacity: 1 - 0.7 * e, ring: ringColor(game, sink.kind))
+            let e = sink.depth * sink.depth * (3 - 2 * sink.depth)
+            drawBall(&w, &ctx, t, kind: sink.kind, at: sink.pos, scale: 1 - 0.45 * e, opacity: 1,
+                     ring: ringColor(game, sink.kind), orient: game.orient[sink.index],
+                     dark: min(1, sink.depth * 1.5), shadow: 1 - sink.depth)
         }
 
         // Rings that show where each cue ball can be picked up (versus).
@@ -66,8 +67,15 @@ enum TableRenderer {
                 let c1 = 1.70158, c3 = c1 + 1
                 scale = max(0.05, 1 + c3 * pow(k - 1, 3) + c1 * pow(k - 1, 2))
             }
-            _ = i
-            drawBall(&w, &ctx, t, kind: b.kind, at: b.pos, scale: scale, opacity: 1, ring: ringColor(game, b.kind))
+            drawBall(&w, &ctx, t, kind: b.kind, at: b.pos, scale: scale, opacity: 1,
+                     ring: ringColor(game, b.kind), orient: game.orient[i], dark: 0, shadow: 1)
+        }
+
+        // A ball going down slides under the leather lip of its pocket.
+        for sink in game.sinks where sink.depth > 0.12 {
+            let r = CGFloat(Table.pocketRadius(sink.pocketIndex))
+            let a = min(1, (sink.depth - 0.12) * 4)
+            w.stroke(w.circle(sink.pocket.cg, r + 3), with: .color(PoolColors.leather.opacity(a)), lineWidth: 6)
         }
 
         // Aim: guide first, then the cue on top.
@@ -144,8 +152,56 @@ enum TableRenderer {
 
     // MARK: - Balls
 
+    /// Points on the unit sphere in a band around `axis`, for painting stripes and rings that turn
+    /// with the ball. `lo...hi` is how far along the axis the band runs (-1...1).
+    private static func bandGrid(axis: SIMD3<Double>, lo: Double, hi: Double, rows: Int, cols: Int) -> [[SIMD3<Double>]] {
+        let helper = abs(axis.z) > 0.9 ? SIMD3<Double>(1, 0, 0) : SIMD3<Double>(0, 0, 1)
+        let u = simd_normalize(simd_cross(axis, helper))
+        let v = simd_cross(axis, u)
+        return (0...rows).map { i in
+            let h = lo + (hi - lo) * Double(i) / Double(rows)
+            let ring = (1 - h * h).squareRoot()
+            return (0...cols).map { j in
+                let a = Double(j) / Double(cols) * 2 * .pi
+                return axis * h + (u * cos(a) + v * sin(a)) * ring
+            }
+        }
+    }
+
+    /// The stripe of a striped ball, and the two halves of a cue ball's ring.
+    private static let stripeGrid = bandGrid(axis: SIMD3(0, 1, 0), lo: -0.56, hi: 0.56, rows: 4, cols: 28)
+    private static let ringFront = bandGrid(axis: SIMD3(0, 0, 1), lo: 0.66, hi: 0.9, rows: 2, cols: 28)
+    private static let ringBack = bandGrid(axis: SIMD3(0, 0, -1), lo: 0.66, hi: 0.9, rows: 2, cols: 28)
+
+    /// The part of a band that faces us, as one filled shape.
+    private static func band(_ grid: [[SIMD3<Double>]], _ q: simd_quatd, _ c: CGPoint, _ r: CGFloat) -> Path {
+        let pts = grid.map { row in row.map { q.act($0) } }
+        func pt(_ v: SIMD3<Double>) -> CGPoint { CGPoint(x: c.x + r * CGFloat(v.x), y: c.y + r * CGFloat(v.y)) }
+        var path = Path()
+        for i in 0..<(pts.count - 1) {
+            for j in 0..<(pts[i].count - 1) {
+                let a = pts[i][j], b = pts[i][j + 1], c2 = pts[i + 1][j + 1], d = pts[i + 1][j]
+                guard a.z + b.z + c2.z + d.z > 0 else { continue }
+                path.move(to: pt(a)); path.addLine(to: pt(b)); path.addLine(to: pt(c2)); path.addLine(to: pt(d))
+                path.closeSubpath()
+            }
+        }
+        return path
+    }
+
+    /// A round patch on the ball seen at an angle: squashed along the way it leans.
+    private static func cap(_ w: SIMD3<Double>, _ c: CGPoint, _ r: CGFloat, radius: Double) -> Path {
+        let along = CGFloat(radius) * r * CGFloat(max(0.02, w.z))
+        let across = CGFloat(radius) * r
+        let centre = CGPoint(x: c.x + r * CGFloat(w.x), y: c.y + r * CGFloat(w.y))
+        let shape = Path(ellipseIn: CGRect(x: -along, y: -across, width: along * 2, height: across * 2))
+        let angle = atan2(w.y, w.x)
+        return shape.applying(CGAffineTransform(rotationAngle: CGFloat(angle)).concatenating(CGAffineTransform(translationX: centre.x, y: centre.y)))
+    }
+
     private static func drawBall(_ w: inout GraphicsContext, _ screen: inout GraphicsContext, _ t: ViewTransform,
-                                 kind: BallKind, at p: Vec, scale: Double, opacity: Double, ring: Color) {
+                                 kind: BallKind, at p: Vec, scale: Double, opacity: Double, ring: Color,
+                                 orient q: simd_quatd, dark: Double, shadow: Double) {
         guard scale > 0.01 else { return }
         let c = p.cg
         let r = CGFloat(Table.ballRadius * scale)
@@ -153,31 +209,54 @@ enum TableRenderer {
         b.opacity = opacity
 
         // The shadow stays on the cloth.
-        b.fill(b.circle(CGPoint(x: c.x + 1.8, y: c.y + 2.8), r), with: .color(.black.opacity(0.3)))
+        if shadow > 0.01 {
+            b.fill(b.circle(CGPoint(x: c.x + 1.8, y: c.y + 2.8), r), with: .color(.black.opacity(0.3 * shadow)))
+        }
+
+        // Everything on the ball is clipped to its disc.
+        var d = b
+        d.clip(to: b.circle(c, r))
+        let front = q.act(SIMD3<Double>(0, 0, 1)), back = q.act(SIMD3<Double>(0, 0, -1))
 
         switch kind {
         case .cue:
-            b.fill(b.circle(c, r), with: .color(.white))
-            b.stroke(b.circle(c, r * 0.58), with: .color(ring), lineWidth: r * 0.3)
+            d.fill(Path(CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)), with: .color(.white))
+            d.fill(band(ringFront, q, c, r), with: .color(ring))
+            d.fill(band(ringBack, q, c, r), with: .color(ring))
         case .object(let number):
             let color = PoolColors.ball(number)
-            b.fill(b.circle(c, r), with: .color(number > 8 ? .white : color))
-            if number > 8 {
-                var band = b
-                band.clip(to: b.circle(c, r))
-                band.fill(Path(CGRect(x: c.x - r, y: c.y - r * 0.56, width: r * 2, height: r * 1.12)), with: .color(color))
+            d.fill(Path(CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)), with: .color(number > 8 ? .white : color))
+            if number > 8 { d.fill(band(stripeGrid, q, c, r), with: .color(color)) }
+            for n in [front, back] where n.z > 0.01 {
+                d.fill(cap(n, c, r, radius: 0.6), with: .color(.white))
             }
-            b.fill(b.circle(c, r * 0.6), with: .color(.white))
+        }
+        if dark > 0 {
+            d.fill(Path(CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)), with: .color(PoolColors.pocket.opacity(0.92 * dark)))
         }
         b.stroke(b.circle(c, r), with: .color(.black.opacity(0.25)), lineWidth: 1)
-        b.fill(b.circle(CGPoint(x: c.x - r * 0.34, y: c.y - r * 0.34), r * 0.25), with: .color(.white.opacity(0.7)))
+        b.fill(b.circle(CGPoint(x: c.x - r * 0.34, y: c.y - r * 0.34), r * 0.25), with: .color(.white.opacity(0.7 * (1 - dark))))
 
-        // The number is drawn the right way up whatever way the table is turned.
-        if case .object(let number) = kind, r * t.scale >= 5 {
-            var s = screen
-            s.opacity = opacity
-            let at = t.toScreen(p)
-            s.draw(Text("\(number)").font(.system(size: r * t.scale * 0.78, weight: .heavy, design: .rounded)).foregroundStyle(.black), at: at)
+        // The number turns with the ball, and is drawn flat in screen space so it stays sharp.
+        if case .object(let number) = kind, r * t.scale >= 5, dark < 0.7 {
+            let lin = t.affine
+            func screenAngle(_ v: SIMD3<Double>) -> Double {
+                let sx = Double(lin.a) * v.x + Double(lin.c) * v.y
+                let sy = Double(lin.b) * v.x + Double(lin.d) * v.y
+                return atan2(sy, sx)
+            }
+            let base = screenAngle(SIMD3(0, -1, 0))
+            for n in [front, back] where n.z > 0.3 {
+                let up = q.act(SIMD3<Double>(0, -1, 0))
+                let angle = screenAngle(up) - base
+                var s = screen
+                s.opacity = opacity * min(1, (n.z - 0.3) / 0.3) * (1 - dark)
+                let at = t.toScreen(Vec(p.x + n.x * Double(r), p.y + n.y * Double(r)))
+                s.translateBy(x: at.x, y: at.y)
+                s.rotate(by: .radians(angle))
+                let size = r * t.scale * 0.78 * CGFloat(0.55 + 0.45 * n.z)
+                s.draw(Text("\(number)").font(.system(size: size, weight: .heavy, design: .rounded)).foregroundStyle(.black), at: .zero)
+            }
         }
     }
 

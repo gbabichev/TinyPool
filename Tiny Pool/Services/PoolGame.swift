@@ -12,6 +12,7 @@
 
 import SwiftUI
 import Observation
+import simd
 
 /// Maps the table onto the screen. The table (rail included) is scaled to fill the space left
 /// under the scoreboard, and turned a quarter turn when that makes it bigger (a phone held
@@ -57,13 +58,18 @@ struct ShotPreview {
     var after: [Vec] = []
 }
 
-/// A ball on its way down a pocket.
+/// A ball on its way down a pocket. It keeps the speed it had, is pulled to the middle of the
+/// hole, and shrinks and darkens as it drops.
 struct Sink {
     var kind: BallKind
-    var from: Vec
+    var index: Int
+    var pos: Vec
+    var vel: Vec
     var pocket: Vec
-    var start: Double
-    static let duration = 0.38
+    var pocketIndex: Int
+    /// 0 at the rim, 1 at the bottom.
+    var depth = 0.0
+    static let seconds = 0.5
 }
 
 enum GameMode: Equatable {
@@ -122,6 +128,9 @@ final class PoolGame {
     @ObservationIgnored private(set) var aims: [Int: Vec] = [:]
     @ObservationIgnored private(set) var previews: [Int: ShotPreview] = [:]
     @ObservationIgnored private(set) var sinks: [Sink] = []
+    /// How each ball is turned, so it visibly rolls.
+    @ObservationIgnored private(set) var orient: [simd_quatd] = []
+    @ObservationIgnored private var lastPos: [Vec] = []
     /// When each cue ball last (re)appeared, for its pop-in.
     @ObservationIgnored private(set) var appeared: [Int: Double] = [:]
     @ObservationIgnored var topReserve: CGFloat = 70
@@ -219,6 +228,8 @@ final class PoolGame {
             balls.append(Ball(kind: .object(number: number), pos: pos + jitter))
         }
         sim = Simulation(balls: balls)
+        orient = Array(repeating: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), count: balls.count)
+        lastPos = balls.map(\.pos)
         cueIndex = cues
         ballsLeft = 15
         for p in cues.indices { appeared[p] = animTime }
@@ -418,7 +429,8 @@ final class PoolGame {
             accumulator = 0
         }
 
-        sinks.removeAll { animTime - $0.start >= Sink.duration }
+        rollBalls()
+        updateSinks(dt)
         for (p, t) in appeared where animTime - t > 0.4 { appeared[p] = nil }
         if banner != nil, animTime > bannerUntil { banner = nil }
 
@@ -428,6 +440,52 @@ final class PoolGame {
         if shotInFlight, !sim.isMoving { shotEnded() }
         runComputer()
         if let due = finishAt, animTime >= due, !sim.isMoving { finish() }
+    }
+
+    // MARK: - Rolling and dropping
+
+    /// Turns each ball by how far it rolled: a ball that moves a distance `d` turns by `d / radius`
+    /// about the axis across its path.
+    private func rollBalls() {
+        for i in sim.balls.indices where sim.balls[i].onTable {
+            roll(i, from: lastPos[i], to: sim.balls[i].pos)
+            lastPos[i] = sim.balls[i].pos
+        }
+    }
+
+    private func roll(_ i: Int, from: Vec, to: Vec) {
+        let d = to - from
+        let dist = d.length
+        guard dist > 1e-4, dist < 80 else { return }
+        let axis = SIMD3<Double>(-d.y, d.x, 0) / dist
+        orient[i] = (simd_quatd(angle: dist / Table.ballRadius, axis: axis) * orient[i]).normalized
+    }
+
+    private func updateSinks(_ dt: Double) {
+        guard !sinks.isEmpty else { return }
+        var left = dt
+        while left > 0 {
+            let h = min(left, 1.0 / 120)
+            left -= h
+            for k in sinks.indices {
+                var s = sinks[k]
+                let before = s.pos
+                // Pulled to the middle of the hole, with a little drag: it swings in and settles.
+                s.vel += ((s.pocket - s.pos) * 650 - s.vel * 7) * h
+                s.pos += s.vel * h
+                // It cannot go past the back of the pocket.
+                let off = s.pos - s.pocket
+                let limit = Table.pocketRadius(s.pocketIndex) * 0.65
+                if off.length > limit {
+                    s.pos = s.pocket + off * (limit / off.length)
+                    s.vel = s.vel * 0.25
+                }
+                s.depth = min(1, s.depth + h / Sink.seconds)
+                roll(s.index, from: before, to: s.pos)
+                sinks[k] = s
+            }
+        }
+        sinks.removeAll { $0.depth >= 1 }
     }
 
     private func handle(_ events: [SimEvent]) {
@@ -453,7 +511,7 @@ final class PoolGame {
 
     private func pocketed(_ i: Int, pocket: Int) {
         let ball = sim.balls[i]
-        sinks.append(Sink(kind: ball.kind, from: ball.pos, pocket: Table.pockets[pocket], start: animTime))
+        sinks.append(Sink(kind: ball.kind, index: i, pos: ball.pos, vel: ball.sunkVel, pocket: Table.pockets[pocket], pocketIndex: pocket))
         switch ball.kind {
         case .cue(let p):
             // The cue ball dropped.
@@ -489,6 +547,8 @@ final class PoolGame {
         sim.balls[i].vel = .zero
         sim.balls[i].pos = .zero          // out of the way while looking for a spot
         sim.balls[i].pos = sim.freeSpot(near: home, ignoring: i)
+        lastPos[i] = sim.balls[i].pos
+        orient[i] = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
         appeared[player] = animTime
     }
 

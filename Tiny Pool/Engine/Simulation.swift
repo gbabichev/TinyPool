@@ -19,6 +19,8 @@ nonisolated struct Ball: Sendable {
     var pos: Vec
     var vel = Vec.zero
     var onTable = true
+    /// How fast it was going when a pocket took it (for the drop animation).
+    var sunkVel = Vec.zero
     /// The player who last sent this ball on its way (object balls only). Whoever's cue ball
     /// reaches it, directly or through other balls, gets the credit when it drops.
     var credit: Int?
@@ -144,6 +146,7 @@ nonisolated struct Simulation: Sendable {
             }
             if let hit {
                 balls[i].onTable = false
+                balls[i].sunkVel = balls[i].vel
                 balls[i].vel = .zero
                 events.append(.pocketed(ball: i, pocket: hit))
             }
