@@ -65,7 +65,7 @@ struct HomeView: View {
     private var hero: some View {
         VStack(spacing: 14) {
             HStack(spacing: -6) {
-                BallDot(number: nil, ring: PoolColors.players[0], size: 46)
+                BallDot(number: nil, ring: .clear, size: 46)
                 BallDot(number: 8, size: 46)
             }
             Text("Tiny Pool")

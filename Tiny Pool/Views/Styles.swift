@@ -69,7 +69,7 @@ struct BallDot: View {
                 }
             } else {
                 Circle().fill(.white)
-                Circle().stroke(ring, lineWidth: size * 0.14).padding(size * 0.2)
+                if ring != .clear { Circle().stroke(ring, lineWidth: size * 0.14).padding(size * 0.2) }
             }
         }
         .frame(width: size, height: size)

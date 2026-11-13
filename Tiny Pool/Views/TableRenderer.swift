@@ -90,10 +90,11 @@ enum TableRenderer {
         }
     }
 
+    /// The cue ball is plain white. Only when everyone plays at once, where there are several of
+    /// them, does each get a ring in its player's colour.
     private static func ringColor(_ game: PoolGame, _ kind: BallKind) -> Color {
-        guard case .cue(let p) = kind else { return .clear }
-        // Taking turns, the ring colour says whose turn it is.
-        return PoolColors.players[game.isSimultaneous ? p : game.turn]
+        guard case .cue(let p) = kind, game.isSimultaneous else { return .clear }
+        return PoolColors.players[p]
     }
 
     // MARK: - The table
@@ -226,8 +227,15 @@ enum TableRenderer {
         switch kind {
         case .cue:
             d.fill(Path(CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)), with: .color(.white))
-            d.fill(band(ringFront, q, c, r), with: .color(ring))
-            d.fill(band(ringBack, q, c, r), with: .color(ring))
+            if ring == .clear {
+                // Pure white, with a faint spot on each side so its roll can still be seen.
+                for n in [front, back] where n.z > 0.01 {
+                    d.fill(cap(n, c, r, radius: 0.17), with: .color(.black.opacity(0.16)))
+                }
+            } else {
+                d.fill(band(ringFront, q, c, r), with: .color(ring))
+                d.fill(band(ringBack, q, c, r), with: .color(ring))
+            }
         case .object(let number):
             let color = PoolColors.ball(number)
             d.fill(Path(CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)), with: .color(number > 8 ? .white : color))
