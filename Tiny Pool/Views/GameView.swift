@@ -46,7 +46,7 @@ struct GameView: View {
                     .shadow(color: .black.opacity(0.18), radius: 0, x: 0, y: 3)
                     .padding(.top, inStatusStrip ? 130 : insets.top + 78)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                    .transition(.scale(scale: 0.8))
                     .allowsHitTesting(false)
             }
 
@@ -180,7 +180,7 @@ struct GameView: View {
 private struct Scoreboard: View {
     let game: PoolGame
 
-    private func clock(_ s: Int) -> String { "\(s / 60):" + String(format: "%02d", s % 60) }
+    private func clock(_ s: Int) -> String { "\(s / 60):\(s % 60 < 10 ? "0" : "")\(s % 60)" }
 
     var body: some View {
         VStack(spacing: 3) {
