@@ -11,7 +11,10 @@ import SwiftUI
 struct Tiny_PoolApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
         }
+        #if os(macOS)
+        .defaultSize(width: 1000, height: 640)
+        #endif
     }
 }
