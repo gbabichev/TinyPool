@@ -12,7 +12,7 @@ import Foundation
 nonisolated enum Table {
     static let width = 1000.0
     static let height = 500.0
-    static let ballRadius = 11.0
+    static let ballRadius = 15.0
 
     /// How far the wooden rail reaches out past the cushions (drawing only).
     static let rail = 40.0

@@ -52,7 +52,7 @@ enum TableRenderer {
             for p in 0..<game.mode.playerCount where game.canAim(p) && game.aims[p] == nil {
                 guard let cue = game.cueBall(of: p) else { continue }
                 let pulse = 0.5 + 0.5 * sin(time * 4 + Double(p))
-                let r = CGFloat(Table.ballRadius) + 7 + 2 * CGFloat(pulse)
+                let r = CGFloat(Table.ballRadius) + 8 + 2 * CGFloat(pulse)
                 w.stroke(w.circle(cue.pos.cg, r), with: .color(PoolColors.players[p].opacity(0.55 + 0.3 * pulse)),
                          style: StrokeStyle(lineWidth: 3, dash: [5, 5]))
             }
@@ -167,17 +167,17 @@ enum TableRenderer {
                 band.clip(to: b.circle(c, r))
                 band.fill(Path(CGRect(x: c.x - r, y: c.y - r * 0.56, width: r * 2, height: r * 1.12)), with: .color(color))
             }
-            b.fill(b.circle(c, r * 0.52), with: .color(.white))
+            b.fill(b.circle(c, r * 0.6), with: .color(.white))
         }
         b.stroke(b.circle(c, r), with: .color(.black.opacity(0.25)), lineWidth: 1)
         b.fill(b.circle(CGPoint(x: c.x - r * 0.34, y: c.y - r * 0.34), r * 0.25), with: .color(.white.opacity(0.7)))
 
         // The number is drawn the right way up whatever way the table is turned.
-        if case .object(let number) = kind, r * t.scale >= 6 {
+        if case .object(let number) = kind, r * t.scale >= 5 {
             var s = screen
             s.opacity = opacity
             let at = t.toScreen(p)
-            s.draw(Text("\(number)").font(.system(size: r * t.scale * 0.72, weight: .heavy, design: .rounded)).foregroundStyle(.black), at: at)
+            s.draw(Text("\(number)").font(.system(size: r * t.scale * 0.78, weight: .heavy, design: .rounded)).foregroundStyle(.black), at: at)
         }
     }
 
@@ -189,7 +189,7 @@ enum TableRenderer {
         let centre = ball.cg
         // Yellow when soft, shading to orange-red as the shot gets harder.
         let tint = Color(hue: 0.005 + 0.15 * (1 - power), saturation: 0.88, brightness: 1.0)
-        let ringR: CGFloat = 19
+        let ringR: CGFloat = 24
 
         // The guide: where the cue ball goes, where it meets a ball, and where they go next.
         if let preview = game.previews[player] {
@@ -203,7 +203,7 @@ enum TableRenderer {
         }
 
         // The cue, behind the ball, drawn back further the harder the shot.
-        let tip = centre - CGPoint(x: dir.x, y: dir.y).scaled(Double(ringR) + 2 + 26 * power)
+        let tip = centre - CGPoint(x: dir.x, y: dir.y).scaled(Double(ringR) + 2 + 30 * power)
         let length = 330.0
         let butt = tip - CGPoint(x: dir.x, y: dir.y).scaled(length)
         let side = CGPoint(x: -dir.y, y: dir.x)
@@ -245,7 +245,7 @@ enum TableRenderer {
         var total = 0.0
         for i in 1..<points.count { total += points[i].distance(to: points[i - 1]) }
         var nextDot = startAt
-        let gap = 11.0
+        let gap = 13.0
         var travelled = 0.0
         for i in 1..<points.count {
             let a = points[i - 1], b = points[i]
@@ -257,7 +257,7 @@ enum TableRenderer {
                 // Only the last dot fades in or out as the end of the route moves past it.
                 let end = max(0, min(1, (total - nextDot + 4) / 8))
                 let ease = end * end * (3 - 2 * end)
-                w.fill(w.circle(p.cg, CGFloat(3.0 - 1.2 * far)), with: .color(color.opacity((1 - 0.6 * (fade ? far : 0)) * ease)))
+                w.fill(w.circle(p.cg, CGFloat(3.6 - 1.4 * far)), with: .color(color.opacity((1 - 0.6 * (fade ? far : 0)) * ease)))
                 nextDot += gap
             }
             travelled += seg
