@@ -76,6 +76,16 @@ enum TableRenderer {
                      ring: ringColor(game, b.kind), orient: game.orient[i], dark: 0, shadow: 1)
         }
 
+        // 9-Ball: a ring marks the ball that has to be hit first, so it is easy to find even when
+        // its number is hidden or it is tucked in behind the others.
+        if game.mode.rules == .nineBall, game.overlay == .none, let next = game.lowestBall,
+           let ball = balls.first(where: { $0.number == next && $0.onTable }) {
+            let gold = Color(hex: 0xFFD54A)
+            let r = CGFloat(Table.ballRadius)
+            w.stroke(w.circle(ball.pos.cg, r + 8), with: .color(gold.opacity(0.28)), lineWidth: 8)
+            w.stroke(w.circle(ball.pos.cg, r + 6), with: .color(gold), lineWidth: 3)
+        }
+
         // A ball going down slides under the leather lip of its pocket.
         for sink in game.sinks where sink.depth > 0.12 {
             let r = CGFloat(Table.pocketRadius(sink.pocketIndex))
