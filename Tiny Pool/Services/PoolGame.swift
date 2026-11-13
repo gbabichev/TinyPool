@@ -69,7 +69,7 @@ struct Sink {
     var pocketIndex: Int
     /// 0 at the rim, 1 at the bottom.
     var depth = 0.0
-    static let seconds = 0.5
+    static let seconds = 0.28
 }
 
 enum GameMode: Equatable {
@@ -263,7 +263,7 @@ final class PoolGame {
     }
 
     /// Whether the table is still enough to take a shot (turn-based games).
-    private var tableIsQuiet: Bool { !shotInFlight && !sim.isMoving && sinks.isEmpty }
+    private var tableIsQuiet: Bool { !shotInFlight && !sim.isMoving }
 
     var isBusy: Bool {
         sim.isMoving || !aims.isEmpty || !sinks.isEmpty || !appeared.isEmpty || !respawnAt.isEmpty
