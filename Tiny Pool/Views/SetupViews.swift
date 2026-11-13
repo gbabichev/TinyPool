@@ -170,14 +170,21 @@ struct SettingsView: View {
         }
     }
 
+    /// A full-width row: the title on the left, the switch on the right (on a Mac a bare Toggle
+    /// shrinks to its contents and floats in the middle).
     private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
-        Toggle(isOn: isOn) {
+        HStack {
             Text(title)
                 .font(.system(size: 18, weight: .heavy, design: .rounded))
                 .foregroundStyle(Ink.dark)
+            Spacer(minLength: 12)
+            Toggle(title, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(Ink.green)
         }
-        .tint(Ink.green)
         .padding(14)
+        .frame(maxWidth: .infinity)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.white.opacity(0.55)))
     }
 }
