@@ -246,11 +246,13 @@ enum TableRenderer {
                 return atan2(sy, sx)
             }
             let base = screenAngle(SIMD3(0, -1, 0))
-            for n in [front, back] where n.z > 0.3 {
+            for n in [front, back] where n.z > 0.4 {
                 let up = q.act(SIMD3<Double>(0, -1, 0))
                 let angle = screenAngle(up) - base
                 var s = screen
-                s.opacity = opacity * min(1, (n.z - 0.3) / 0.3) * (1 - dark)
+                s.opacity = opacity * min(1, (n.z - 0.4) / 0.25) * (1 - dark)
+                // Painted on: the number is cut off by the edge of its badge, never poking out.
+                s.clip(to: cap(n, c, r, radius: 0.6).applying(lin))
                 let at = t.toScreen(Vec(p.x + n.x * Double(r), p.y + n.y * Double(r)))
                 s.translateBy(x: at.x, y: at.y)
                 s.rotate(by: .radians(angle))
