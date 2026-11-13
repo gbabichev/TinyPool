@@ -9,6 +9,7 @@ struct HomeView: View {
     let game: PoolGame
     let onPlay: (GameMode) -> Void
 
+    @State private var showingPractice = false
     @State private var showingSettings = false
     @State private var showingComputer = false
     @State private var showingVersus = false
@@ -36,18 +37,27 @@ struct HomeView: View {
             }
         }
         .sheet(isPresented: $showingSettings) { SettingsView(game: game) }
+        .sheet(isPresented: $showingPractice) {
+            PracticeSetupView(game: game) { rules in
+                game.lastRules = rules
+                showingPractice = false
+                onPlay(GameMode(rules: rules, opponent: .solo))
+            }
+        }
         .sheet(isPresented: $showingComputer) {
-            ComputerSetupView(game: game) { level in
+            ComputerSetupView(game: game) { rules, level in
                 game.lastLevel = level
+                game.lastRules = rules
                 showingComputer = false
-                onPlay(.computer(level))
+                onPlay(GameMode(rules: rules, opponent: .computer(level)))
             }
         }
         .sheet(isPresented: $showingVersus) {
-            VersusSetupView(game: game) { count in
+            VersusSetupView(game: game) { rules, count in
                 game.lastVersusCount = count
+                game.lastRules = rules
                 showingVersus = false
-                onPlay(.versus(players: count))
+                onPlay(GameMode(rules: rules, opponent: .versus(players: count)))
             }
         }
     }
@@ -70,15 +80,10 @@ struct HomeView: View {
 
     private var menu: some View {
         VStack(spacing: 14) {
-            Button("Practice") { onPlay(.practice) }.buttonStyle(PillButtonStyle(prominent: true))
+            Button("Practice") { showingPractice = true }.buttonStyle(PillButtonStyle(prominent: true))
             Button("Vs Computer") { showingComputer = true }.buttonStyle(PillButtonStyle())
             Button("Versus") { showingVersus = true }.buttonStyle(PillButtonStyle())
             Button("Settings") { showingSettings = true }.buttonStyle(PillButtonStyle())
-            if let best = game.bestPractice {
-                Text("Practice best: cleared in \(best) \(best == 1 ? "shot" : "shots")")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-            }
         }
     }
 }

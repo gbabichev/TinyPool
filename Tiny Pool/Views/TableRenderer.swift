@@ -49,7 +49,7 @@ enum TableRenderer {
         }
 
         // Rings that show where each cue ball can be picked up (versus).
-        if game.isVersus {
+        if game.isSimultaneous {
             for p in 0..<game.mode.playerCount where game.canAim(p) && game.aims[p] == nil {
                 guard let cue = game.cueBall(of: p) else { continue }
                 let pulse = 0.5 + 0.5 * sin(time * 4 + Double(p))
@@ -57,6 +57,14 @@ enum TableRenderer {
                 w.stroke(w.circle(cue.pos.cg, r), with: .color(PoolColors.players[p].opacity(0.55 + 0.3 * pulse)),
                          style: StrokeStyle(lineWidth: 3, dash: [5, 5]))
             }
+        }
+
+        // Ball in hand: the cue ball can be carried anywhere.
+        if game.canPlaceCue, let cue = game.cueBall(of: 0), game.aims[0] == nil {
+            let pulse = 0.5 + 0.5 * sin(time * 5)
+            let r = CGFloat(Table.ballRadius) + 9 + 3 * CGFloat(pulse)
+            w.stroke(w.circle(cue.pos.cg, r), with: .color(PoolColors.players[game.turn].opacity(0.6 + 0.3 * pulse)),
+                     style: StrokeStyle(lineWidth: 3, dash: [6, 5]))
         }
 
         for (i, b) in balls.enumerated() where b.onTable {
@@ -87,8 +95,8 @@ enum TableRenderer {
 
     private static func ringColor(_ game: PoolGame, _ kind: BallKind) -> Color {
         guard case .cue(let p) = kind else { return .clear }
-        // In a game against the computer the ring says whose turn it is.
-        return PoolColors.players[game.isComputerGame ? game.turn : p]
+        // Taking turns, the ring colour says whose turn it is.
+        return PoolColors.players[game.isSimultaneous ? p : game.turn]
     }
 
     // MARK: - The table

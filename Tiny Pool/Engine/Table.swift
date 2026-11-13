@@ -43,11 +43,25 @@ nonisolated enum Table {
     /// a stripe and a solid in the back corners.
     static let rackOrder = [1, 9, 2, 10, 8, 3, 11, 4, 12, 5, 13, 6, 14, 15, 7]
 
-    /// A triangle of the fifteen balls with its apex on the foot spot.
-    static func rack() -> [(number: Int, pos: Vec)] {
+    /// The balls set up for a rule set, apex on the foot spot: a triangle of fifteen, or the
+    /// nine-ball diamond (1 at the front, 9 in the middle, the rest shuffled).
+    static func rack(for rules: Rules) -> [(number: Int, pos: Vec)] {
         let d = ballRadius * 2 + 0.15
         let dx = d * 0.8660254
         var out: [(Int, Vec)] = []
+        if rules == .nineBall {
+            let rows = [1, 2, 3, 2, 1]
+            var others = Array(2...8).shuffled()
+            for (row, count) in rows.enumerated() {
+                for j in 0..<count {
+                    let number: Int
+                    if row == 0 { number = 1 } else if row == 2 && j == 1 { number = 9 } else { number = others.removeLast() }
+                    let y = height / 2 + (Double(j) - Double(count - 1) / 2) * d
+                    out.append((number, Vec(footSpot.x + Double(row) * dx, y)))
+                }
+            }
+            return out
+        }
         var k = 0
         for row in 0..<5 {
             for j in 0...row {

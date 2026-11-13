@@ -39,15 +39,77 @@ nonisolated enum AILevel: Int, CaseIterable, Codable, Sendable, Identifiable {
     }
 }
 
+/// What the computer needs to know about the rules to pick a legal shot.
+nonisolated struct AIContext: Sendable {
+    var rules: Rules
+    /// The computer's own group (8-ball).
+    var group: BallGroup?
+    var isBreak: Bool
+}
+
+/// Where to put the cue ball (with ball in hand), and the shot to play from there.
+nonisolated struct AIPlan: Sendable {
+    var spot: Vec?
+    var velocity: Vec
+}
+
 nonisolated enum ComputerPlayer {
     struct Candidate {
         var velocity: Vec
         var score: Double
     }
 
+    static func plan(table sim: Simulation, cue: Int, level: AILevel, context: AIContext, inHand: Bool) -> AIPlan {
+        var table = sim
+        var spot: Vec?
+        if inHand {
+            let s = chooseSpot(table: sim, cue: cue, level: level, context: context)
+            table.balls[cue].pos = s
+            table.balls[cue].vel = .zero
+            spot = s
+        }
+        return AIPlan(spot: spot, velocity: chooseShot(table: table, cue: cue, level: level, context: context))
+    }
+
+    private static func remaining(_ sim: Simulation) -> Set<Int> {
+        Set(sim.balls.filter { $0.onTable }.compactMap { $0.number })
+    }
+
+    /// With ball in hand: a spot with a good shot from it. Beginners just drop it somewhere.
+    private static func chooseSpot(table sim: Simulation, cue: Int, level: AILevel, context: AIContext) -> Vec {
+        var spots: [Vec] = []
+        var x = 90.0
+        while x < Table.width - 60 {
+            var y = 60.0
+            while y < Table.height - 40 {
+                let p = Vec(x, y)
+                if sim.isFree(p, ignoring: cue, margin: 4) { spots.append(p) }
+                y += 60
+            }
+            x += 70
+        }
+        guard !spots.isEmpty else { return sim.freeSpot(near: Table.headSpot, ignoring: cue) }
+        if level == .beginner { return spots.randomElement()! }
+        var scored: [(Vec, Double)] = []
+        for p in spots {
+            var t = sim
+            t.balls[cue].pos = p
+            let best = candidates(in: t, cue: cue, requireClear: true, allowed: allowed(context, t)).map(\.score).max() ?? -9
+            scored.append((p, best))
+        }
+        scored.sort { $0.1 > $1.1 }
+        let pool = level == .expert ? 1 : 3
+        return scored.prefix(pool).randomElement()!.0
+    }
+
+    private static func allowed(_ context: AIContext, _ sim: Simulation) -> Set<Int> {
+        Judge.allowedTargets(context.rules, group: context.group, remaining: remaining(sim))
+    }
+
     /// The shot to play for the cue ball at `cue`: a velocity.
-    static func chooseShot(table sim: Simulation, cue: Int, level: AILevel) -> Vec {
-        var candidates = self.candidates(in: sim, cue: cue, requireClear: level != .beginner)
+    static func chooseShot(table sim: Simulation, cue: Int, level: AILevel, context: AIContext) -> Vec {
+        let allowed = self.allowed(context, sim)
+        var candidates = self.candidates(in: sim, cue: cue, requireClear: level != .beginner, allowed: allowed)
         candidates.sort { $0.score > $1.score }
 
         var pick: Vec
@@ -57,25 +119,25 @@ nonisolated enum ComputerPlayer {
             if let c = candidates.randomElement(), Double.random(in: 0...1) < 0.8 {
                 pick = c.velocity
             } else {
-                pick = fallback(in: sim, cue: cue, hard: true)
+                pick = fallback(in: sim, cue: cue, hard: true, allowed: allowed)
             }
         case .intermediate:
             if let c = candidates.prefix(3).randomElement() {
                 pick = c.velocity
             } else {
-                pick = fallback(in: sim, cue: cue, hard: false)
+                pick = fallback(in: sim, cue: cue, hard: false, allowed: allowed)
             }
         case .expert:
             var best: (Vec, Double)?
             for c in candidates.prefix(14) {
-                let value = trial(c.velocity, in: sim, cue: cue)
+                let value = trial(c.velocity, in: sim, cue: cue, context: context)
                 if best == nil || value > best!.1 { best = (c.velocity, value) }
-                if value >= Double(Table.value(of: 8)) + 1 { break }
+                if value >= 100 { break }
             }
             if let best, best.1 > 0 {
                 pick = best.0
             } else {
-                pick = fallback(in: sim, cue: cue, hard: false)
+                pick = fallback(in: sim, cue: cue, hard: false, allowed: allowed)
             }
         }
         return wobble(pick, level: level)
@@ -95,9 +157,9 @@ nonisolated enum ComputerPlayer {
     }
 
     /// No pocketing shot: just hit the nearest ball.
-    private static func fallback(in sim: Simulation, cue: Int, hard: Bool) -> Vec {
+    private static func fallback(in sim: Simulation, cue: Int, hard: Bool, allowed: Set<Int>) -> Vec {
         let from = sim.balls[cue].pos
-        let targets = sim.balls.indices.filter { sim.balls[$0].onTable && sim.balls[$0].number != nil }
+        let targets = sim.balls.indices.filter { sim.balls[$0].onTable && allowed.contains(sim.balls[$0].number ?? -1) }
         guard let t = targets.min(by: { from.distance(to: sim.balls[$0].pos) < from.distance(to: sim.balls[$1].pos) }) else {
             return Vec(300, 0)
         }
@@ -107,11 +169,11 @@ nonisolated enum ComputerPlayer {
     }
 
     /// Every ball and pocket pair that makes a shot, best first once sorted.
-    static func candidates(in sim: Simulation, cue: Int, requireClear: Bool) -> [Candidate] {
+    static func candidates(in sim: Simulation, cue: Int, requireClear: Bool, allowed: Set<Int>) -> [Candidate] {
         let r = Table.ballRadius
         let from = sim.balls[cue].pos
         var out: [Candidate] = []
-        for (b, ball) in sim.balls.enumerated() where ball.onTable && ball.number != nil {
+        for (b, ball) in sim.balls.enumerated() where ball.onTable && allowed.contains(ball.number ?? -1) {
             for (k, pocket) in Table.pockets.enumerated() {
                 let toPocket = pocket - ball.pos
                 let pocketDist = toPocket.length
@@ -151,17 +213,35 @@ nonisolated enum ComputerPlayer {
         return true
     }
 
-    /// Plays a shot out on a copy of the table. Positive is good: the value of what dropped, less
-    /// a penalty for losing the cue ball.
-    private static func trial(_ velocity: Vec, in sim: Simulation, cue: Int) -> Double {
+    /// Plays a shot out on a copy of the table. Positive is good: what dropped, less penalties
+    /// for fouls and for losing the cue ball; winning is worth the most.
+    private static func trial(_ velocity: Vec, in sim: Simulation, cue: Int, context: AIContext) -> Double {
         var copy = sim
         copy.launch(cue, velocity: velocity)
         var events: [SimEvent] = []
-        copy.settle(maxSeconds: 10, events: &events)
-        var score = 0.0
-        for case .pocketed(let i, _) in events {
-            if i == cue { score -= 4 } else if let n = copy.balls[i].number { score += Double(Table.value(of: n)) }
+        var report = ShotReport()
+        var steps = 0
+        while copy.isMoving, steps < Int(10 / Simulation.dt) {
+            copy.step(events: &events)
+            for e in events { report.record(e, cue: cue, balls: copy.balls) }
+            events.removeAll(keepingCapacity: true)
+            steps += 1
         }
-        return score
+        switch context.rules {
+        case .potPoints, .timed:
+            var score = 0.0
+            for n in report.potted { score += Double(Table.value(of: n)) }
+            if report.cuePotted { score -= 4 }
+            return score
+        case .eightBall, .nineBall:
+            let before = remaining(sim)
+            let verdict = context.rules == .eightBall
+                ? Judge.eightBall(report, group: context.group, remaining: before, isBreak: context.isBreak)
+                : Judge.nineBall(report, remaining: before)
+            if verdict.shooterWins { return 100 }
+            if verdict.shooterLoses { return -100 }
+            if verdict.foul != nil { return -10 }
+            return Double(report.potted.filter { $0 != 8 }.count) * 3 + (verdict.keepTurn ? 2 : 0)
+        }
     }
 }
