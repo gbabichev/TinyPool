@@ -35,6 +35,11 @@ struct ViewTransform {
         anchor = CGPoint(x: view.width / 2, y: topReserve + availH / 2)
     }
 
+    /// How wide the table (rail included) is on the screen.
+    var tableScreenWidth: CGFloat {
+        CGFloat(rotated ? Table.height + 2 * Table.rail : Table.width + 2 * Table.rail) * scale
+    }
+
     var affine: CGAffineTransform {
         // Turned, the rack end of the table points up and the cue end sits under your thumb.
         rotated
@@ -157,6 +162,10 @@ final class PoolGame {
     @ObservationIgnored private(set) var appeared: [Int: Double] = [:]
     @ObservationIgnored var topReserve: CGFloat = 70
     @ObservationIgnored var bottomReserve: CGFloat = 8
+    /// The room left under the table when the two corner buttons need a strip of their own.
+    @ObservationIgnored var tallBottomReserve: CGFloat = 62
+    /// Whether the hint and help buttons sit in the bottom corners (they do, except in the Duo's gutter).
+    @ObservationIgnored var cornerButtons = true
 
     private struct Touch {
         var player: Int
@@ -340,8 +349,12 @@ final class PoolGame {
         sim.isMoving || !aims.isEmpty || !sinks.isEmpty || !appeared.isEmpty || !respawnAt.isEmpty
     }
 
+    /// The table gets a strip under it for the corner buttons only when it is too wide to leave them
+    /// room at its sides: upright (it fills the width), but not on a wide screen (empty beside it).
     func transform(for size: CGSize) -> ViewTransform {
-        ViewTransform(view: size, topReserve: topReserve, bottomReserve: bottomReserve)
+        let low = ViewTransform(view: size, topReserve: topReserve, bottomReserve: bottomReserve)
+        guard cornerButtons, (size.width - low.tableScreenWidth) / 2 < 100 else { return low }
+        return ViewTransform(view: size, topReserve: topReserve, bottomReserve: tallBottomReserve)
     }
 
     /// Whether `player`'s cue ball could be pulled back right now.
@@ -566,14 +579,19 @@ final class PoolGame {
         let ball = sim.balls[i]
         sinks.append(Sink(kind: ball.kind, index: i, pos: ball.pos, vel: ball.sunkVel, pocket: Table.pockets[pocket], pocketIndex: pocket))
         let points = mode.rules.scoresPoints
+        // Practising Pot Points alone has no score on screen (you are counting shots), so it shows no points either.
+        var scoreIsShown = points
+        if case .solo = mode.opponent, mode.rules == .potPoints { scoreIsShown = false }
         switch ball.kind {
         case .cue(let p):
             sounds.play(.scratch)
             haptics.scratch()
-            if points {
+            if scoreIsShown {
                 let owner = isSimultaneous ? p : turn
                 if owner < scores.count { scores[owner] -= 1 }
                 show("Scratch! −1")
+            } else if points {
+                show("Scratch!")
             }
             if isSimultaneous {
                 respawnAt[p] = animTime + 1.3
@@ -586,7 +604,7 @@ final class PoolGame {
             pottedThisShot += 1
             sounds.play(.pocket)
             haptics.clack(strength: 1)
-            if points {
+            if scoreIsShown {
                 let owner = isSimultaneous ? ball.credit : turn
                 if let owner, owner < scores.count { scores[owner] += Table.value(of: number) }
                 if number == 8 { show("Black eight! +3") }

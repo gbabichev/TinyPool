@@ -69,13 +69,21 @@ struct GameView: View {
                     .allowsHitTesting(false)
             }
 
-            // Upright, the hint button sits below the table, in the corner. Wide, it joins the top bar.
-            if !landscape && !inGutter {
-                hintButton
-                    .padding(.leading, 12)
-                    .padding(.bottom, 2)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    .ignoresSafeArea(.container, edges: .bottom)
+            // The same in every orientation: hint bottom-left, help bottom-right, drawn in from the
+            // edges so the rounded corners of the screen never cut them off. (Folded, they stand
+            // in the gutter instead.)
+            if !inGutter {
+                HStack {
+                    hintButton
+                    Spacer()
+                    rulesButton
+                }
+                .buttonStyle(RoundButtonStyle())
+                // The same indent as the top row, so the four corner buttons line up in columns.
+                .padding(.horizontal, max(30, side + 12))
+                .padding(.bottom, 14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea(.container, edges: .bottom)
             }
 
             if game.canPlaceCue {
@@ -103,7 +111,11 @@ struct GameView: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { game.topReserve = $0 > 70 ? 84 : $0 + 62 }
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { landscape = $0 }
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { game.bottomReserve = max($0 + 8, landscape || inGutter ? 8 : 50) }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: {
+            game.bottomReserve = $0 + 8
+            game.tallBottomReserve = max($0 + 8, 62)
+        }
+        .onChange(of: inGutter, initial: true) { _, folded in game.cornerButtons = !folded }
         .animation(.spring(duration: 0.35), value: game.overlay)
         .animation(.spring(duration: 0.3), value: game.banner)
         .sheet(isPresented: $showingRules, onDismiss: { game.isPaused = false }) {
@@ -168,36 +180,28 @@ struct GameView: View {
             .accessibilityLabel("Rack again")
     }
 
+    /// The same row everywhere: exit in the top-left, the scoreboard in the middle, restart in the
+    /// top-right. A tall strip along the top (the unfolded Duo upright) holds the clock and Wi-Fi at
+    /// the right, so there the row rides in the strip and restart stops short of them.
     @ViewBuilder private var hud: some View {
         if inGutter {
             Scoreboard(game: game)
-        } else if inStatusStrip {
-            HStack(spacing: 10) {
-                exitButton
-                Scoreboard(game: game)
-                rulesButton
-                restartButton
-            }
-            .buttonStyle(RoundButtonStyle())
-            .padding(.top, 14)
         } else {
-            // The scoreboard sits in the middle, with a button on the left and the rest on the right.
-            // Where the screen is narrow (the Duo folded, with its strip down one side) it settles
-            // for fitting beside them, instead of sitting on top of them.
+            let leadingClear: CGFloat = inStatusStrip ? 18 : side
+            let trailingClear: CGFloat = inStatusStrip ? 128 : side
+            // Where the screen is narrow it settles for fitting beside the buttons, instead of sitting on them.
             ViewThatFits(in: .horizontal) {
-                topRow(leading: side, trailing: side, centred: true)
-                topRow(leading: insets.leading, trailing: insets.trailing, centred: true)
+                topRow(leading: leadingClear, trailing: trailingClear, centred: true)
+                topRow(leading: leadingClear, trailing: trailingClear, centred: false)
                 topRow(leading: insets.leading, trailing: insets.trailing, centred: false)
             }
             .buttonStyle(RoundButtonStyle())
+            .padding(.top, inStatusStrip ? 14 : 0)
         }
     }
 
     /// How wide the group of buttons on the right is.
-    private var rightButtonsWidth: CGFloat {
-        let n: CGFloat = landscape ? 3 : 2
-        return n * 44 + (n - 1) * 8
-    }
+    private var rightButtonsWidth: CGFloat { 44 }
 
     private func topRow(leading: CGFloat, trailing: CGFloat, centred: Bool) -> some View {
         HStack(spacing: 8) {
@@ -210,11 +214,7 @@ struct GameView: View {
             Spacer(minLength: 6)
             Scoreboard(game: game)
             Spacer(minLength: 6)
-            HStack(spacing: 8) {
-                if landscape { hintButton }
-                rulesButton
-                restartButton
-            }
+            restartButton
         }
         .padding(.leading, leading)
         .padding(.trailing, trailing)
